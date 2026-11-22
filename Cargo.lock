@@ -1466,7 +1466,7 @@ dependencies = [
 
 [[package]]
 name = "patina"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "nih_plug",
  "nih_plug_egui",

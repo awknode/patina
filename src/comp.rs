@@ -175,6 +175,11 @@ pub struct Comp {
     p_in: f32,
     p_out: f32,
     mk: f32,
+    /// AUTO GAIN part 1: undoes INPUT exactly
+    pk: f32,
+    /// AUTO GAIN part 2: learned make-up for the squeeze
+    gk: f32,
+    fresh: bool,
     /// gain reduction right now (dB, positive) for the meter
     pub gr_db: f32,
 }
@@ -199,6 +204,9 @@ impl Comp {
             p_in: 0.0,
             p_out: 0.0,
             mk: 1.0,
+            pk: 1.0,
+            gk: 1.0,
+            fresh: true,
             gr_db: 0.0,
         };
         c.control(&[0.4, 0.5, 0.3, 0.4, 0.3, 1.0, 0.2], 0);
@@ -220,9 +228,8 @@ impl Comp {
         self.hf = [Lp1::default(); 2];
         self.lf = [Lp1::default(); 2];
         self.hf_env = 0.0;
-        self.p_in = 0.0;
-        self.p_out = 0.0;
-        self.mk = 1.0;
+        // AUTO GAIN state is kept on purpose: hosts reset on play/stop, and relearning
+        // would make the first hit after play sound different from the rest.
         self.gr_db = 0.0;
     }
 
@@ -317,6 +324,16 @@ impl Comp {
                 c.odd = 0.3 + 0.5 * x;
                 c.drive = 0.1 + 1.6 * x * x + 0.3 * x;
             }
+        }
+        if self.fresh {
+            // first use: start already compensating INPUT, and guess the squeeze make-up
+            // from the static curve at a typical level
+            self.pk = (1.0 / c.pre.max(1e-6)).powf(c.auto);
+            let lvl = -4.0 + 20.0 * c.pre.max(1e-6).log10();
+            let gr = Self::curve(&c, lvl - c.thr).clamp(0.0, 18.0) * 0.6;
+            self.gk = db(gr).powf(c.auto);
+            self.mk = self.pk * self.gk;
+            self.fresh = false;
         }
         self.c = c;
     }
@@ -428,17 +445,22 @@ impl Comp {
             out[ch] = y - self.dc[ch].tick(y, 0.0007);
         }
         let _ = &self.dc2;
-        // AUTO GAIN: comes out as loud as it went in (slow, so the squeeze still shows)
-        let a = tc(1.0, self.sr);
-        self.p_in += a * (p_raw - self.p_in);
-        self.p_out += a * (0.5 * (out[0] * out[0] + out[1] * out[1]) - self.p_out);
-        let mk_t = if self.p_in > 1e-9 && self.p_out > 1e-9 {
-            let full = (self.p_in / self.p_out).sqrt().clamp(0.06, 16.0);
-            full.powf(c.auto)
+        // AUTO GAIN, two parts: pk = 1/INPUT (exact, immediate), gk = learned make-up
+        // for the squeeze only, frozen while the input is silent
+        let pk_t = (1.0 / c.pre.max(1e-6)).powf(c.auto);
+        self.pk += tc(0.02, self.sr) * (pk_t - self.pk);
+        if p_raw > 1e-8 {
+            let a = tc(1.0, self.sr);
+            self.p_in += a * (p_raw * c.pre * c.pre - self.p_in);
+            self.p_out += a * (0.5 * (out[0] * out[0] + out[1] * out[1]) - self.p_out);
+        }
+        let gk_t = if self.p_in > 1e-9 && self.p_out > 1e-9 {
+            (self.p_in / self.p_out).sqrt().clamp(0.25, 8.0).powf(c.auto)
         } else {
-            self.mk
+            self.gk
         };
-        self.mk += tc(0.08, self.sr) * (mk_t - self.mk);
+        self.gk += tc(0.08, self.sr) * (gk_t - self.gk);
+        self.mk = self.pk * self.gk;
         (out[0] * self.mk, out[1] * self.mk)
     }
 }
