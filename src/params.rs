@@ -5,8 +5,8 @@
 //! in the chain once, so its sound (reverb tails, echo buffer) survives reordering.
 
 use crate::awk_ui;
-use nih_plug::prelude::*;
-use nih_plug_egui::EguiState;
+use nice_plug::prelude::*;
+use nice_plug_egui::EguiEditorState;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -393,8 +393,8 @@ fn slot(i: usize, def: i32) -> IntParam {
 
 #[derive(Params)]
 pub struct PatinaParams {
-    #[persist = "editor-state"]
-    pub editor_state: Arc<EguiState>,
+    /// window size (hosts keep track of it; not persisted)
+    pub editor_state: Arc<EguiEditorState>,
     /// paper (light) look instead of the default dark one
     #[persist = "paper"]
     pub paper: Arc<AtomicBool>,
@@ -515,7 +515,7 @@ impl Default for PatinaParams {
     fn default() -> Self {
         let os = IntParam::new("Oversampling", 1, IntRange::Linear { min: 0, max: 3 }).with_value_to_string(Arc::new(|v| awk_ui::OS_NAMES[v.clamp(0, 3) as usize].to_string()));
         Self {
-            editor_state: EguiState::from_size(crate::editor::WIDTH, crate::editor::HEIGHT),
+            editor_state: EguiEditorState::from_size(nice_plug::editor::dpi::LogicalSize::new((crate::editor::WIDTH) as f64, (crate::editor::HEIGHT) as f64), 1.0),
             paper: Arc::new(AtomicBool::new(false)),
             mix: awk_ui::mix_param(),
             bypass: awk_ui::bypass_param(),

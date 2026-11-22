@@ -11,7 +11,7 @@
 //! those three is always reported (held constant); LOSS/CODEC adds a frame while
 //! it's in the rack.
 
-use nih_plug::prelude::*;
+use nice_plug::prelude::*;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -19,7 +19,9 @@ mod analyzer;
 mod awk_ui;
 pub mod comp;
 pub mod dsp;
+
 mod editor;
+mod nice_app;
 pub mod fx;
 pub mod loss;
 pub mod master;
@@ -864,6 +866,7 @@ impl Plugin for Patina {
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[AudioIOLayout { main_input_channels: NonZeroU32::new(2), main_output_channels: NonZeroU32::new(2), ..AudioIOLayout::const_default() }];
     const MIDI_INPUT: MidiConfig = MidiConfig::None;
     const SAMPLE_ACCURATE_AUTOMATION: bool = false;
+    type Editor = crate::nice_app::AwkEditor;
     type SysExMessage = ();
     type BackgroundTask = ();
 
@@ -871,11 +874,11 @@ impl Plugin for Patina {
         self.params.clone()
     }
 
-    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
+    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Self::Editor> {
         editor::create(self.params.clone(), self.shared.clone())
     }
 
-    fn initialize(&mut self, _layout: &AudioIOLayout, cfg: &BufferConfig, ctx: &mut impl InitContext<Self>) -> bool {
+    fn activate(&mut self, _layout: &AudioIOLayout, cfg: &BufferConfig, ctx: &mut impl ActivateContext<Self>) -> bool {
         self.eng = Engine::new(cfg.sample_rate, self.params.os.value()).with_shared(self.shared.clone());
         self.reported = self.eng.lat_for_state(&State::from_params(&self.params)) as u32;
         ctx.set_latency_samples(self.reported);
@@ -924,5 +927,5 @@ impl Vst3Plugin for Patina {
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Fx, Vst3SubCategory::Distortion, Vst3SubCategory::Reverb];
 }
 
-nih_export_clap!(Patina);
-nih_export_vst3!(Patina);
+nice_export_clap!(Patina);
+nice_export_vst3!(Patina);

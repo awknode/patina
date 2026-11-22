@@ -12,9 +12,9 @@ use crate::awk_ui::*;
 use crate::params::*;
 use crate::presets::PresetBar;
 use crate::{get, Shared};
-use nih_plug::prelude::*;
-use nih_plug_egui::create_egui_editor;
-use nih_plug_egui::egui::{self, pos2, vec2, Align2, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind};
+use nice_plug::prelude::*;
+use nice_plug_egui::create_egui_editor;
+use egui::{pos2, vec2, Align2, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind};
 use std::f32::consts::{PI, TAU};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -120,10 +120,16 @@ fn new_state(name: &'static str) -> St {
     St { presets: PresetBar::new(name), skin, an_in: Analyzer::default(), an_out: Analyzer::default(), pick: None, flav: None, drag: None }
 }
 
-pub(crate) fn create(params: Arc<PatinaParams>, shared: Arc<Shared>) -> Option<Box<dyn Editor>> {
+pub(crate) fn create(params: Arc<PatinaParams>, shared: Arc<Shared>) -> Option<crate::nice_app::AwkEditor> {
     let state = params.editor_state.clone();
     let st = new_state("Patina");
-    create_egui_editor(state, st, |ctx, _| fonts(ctx), move |ctx, setter, st| frame(ctx, setter, st, params.as_ref(), shared.as_ref()))
+    create_egui_editor(state, nice_plug_egui::RepaintNotifier::new(), nice_plug_egui::EguiNiceSettings::default(), crate::nice_app::AwkApp::new(fonts, {
+        let mut __st = st;
+        Box::new(move |ctx: &mut egui::Ui, setter: &ParamSetter| {
+            let st = &mut __st;
+            frame(ctx, setter, st, params.as_ref(), shared.as_ref())
+        })
+    }))
 }
 
 fn fonts(ctx: &egui::Context) {
@@ -256,9 +262,9 @@ fn slot_rect(o: egui::Vec2, i: usize) -> Rect {
 
 /// The knob: soft-shadowed cap, coloured value arc, pointer, label and value.
 #[allow(clippy::too_many_arguments)]
-fn knob(ui: &mut egui::Ui, setter: &ParamSetter, th: &Th, c: Pos2, r: f32, param: &FloatParam, col: Color32, label: &str, value: &str, id: impl std::hash::Hash, dim: bool) -> Response {
+fn knob(ui: &mut egui::Ui, setter: &ParamSetter, th: &Th, c: Pos2, r: f32, param: &FloatParam, col: Color32, label: &str, value: &str, id: impl std::hash::Hash + std::fmt::Debug, dim: bool) -> Response {
     let rect = Rect::from_center_size(c, vec2(r * 2.0 + 14.0, r * 2.0 + 14.0));
-    let uid = ui.id().with(("kn", id));
+    let uid = ui.scope_id().with(("kn", id));
     let resp = ui.interact(rect, uid, Sense::click_and_drag());
     knob_input(ui, setter, &resp, uid.with("d"), param);
     let pa = ui.painter();
@@ -289,14 +295,16 @@ fn knob(ui: &mut egui::Ui, setter: &ParamSetter, th: &Th, c: Pos2, r: f32, param
 
 // ------------------------------------------------------------------ frame
 
-fn frame(ctx: &egui::Context, setter: &ParamSetter, st: &mut St, p: &PatinaParams, sh: &Shared) {
+fn frame(root: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaParams, sh: &Shared) {
+    let ctx_owned = root.ctx().clone();
+    let ctx = &ctx_owned;
     ctx.request_repaint_after(std::time::Duration::from_millis(33));
     st.skin.begin(ctx);
     st.an_in.update(&sh.spec_in);
     st.an_out.update(&sh.spec_out);
     let th = if p.paper.load(Ordering::Relaxed) { LIGHT } else { DARK };
     let t = ctx.input(|i| i.time) as f32;
-    egui::CentralPanel::default().frame(egui::Frame::NONE.fill(th.bg)).show(ctx, |ui| {
+    egui::CentralPanel::default().frame(egui::Frame::NONE.fill(th.bg)).show(root, |ui| {
         let whole = ui.max_rect();
         let o = whole.min.to_vec2();
         let at = |x: f32, y: f32| pos2(x, y) + o;
@@ -412,7 +420,7 @@ fn master(ui: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaParams
     knob(ui, setter, th, at(210.0, 40.0), 14.0, &p.out, th.text, "OUTPUT", &format!("{:+.1} dB", p.out.value()), "out", false);
     let on = p.matching.value();
     let mr = Rect::from_min_size(at(124.0, 94.0), vec2(112.0, 22.0));
-    let resp = ui.interact(mr, ui.id().with("match"), Sense::click()).on_hover_text("Loudness match: the rack comes out as loud as it went in");
+    let resp = ui.interact(mr, ui.scope_id().with("match"), Sense::click()).on_hover_text("Loudness match: the rack comes out as loud as it went in");
     if resp.clicked() {
         set_bool(setter, &p.matching, !on);
     }
@@ -454,7 +462,7 @@ fn column(ui: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaParams
     pa.rect_stroke(r, rr(8.0), Stroke::new(1.0, if dragging_me { col } else { th.edge }), StrokeKind::Inside);
     // header
     let hr = Rect::from_min_size(r.min, vec2(COLW, 30.0));
-    let hresp = ui.interact(hr, ui.id().with(("hdr", i)), Sense::click_and_drag()).on_hover_text("Click: swap or remove · drag: move it in the rack");
+    let hresp = ui.interact(hr, ui.scope_id().with(("hdr", i)), Sense::click_and_drag()).on_hover_text("Click: swap or remove · drag: move it in the rack");
     let hcol = if on { col } else { mix_col(col, th.panel, 0.72) };
     pa.rect_filled(hr, CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 }, hcol);
     if !th.light && on {
@@ -468,7 +476,7 @@ fn column(ui: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaParams
     }
     // LED (power)
     let lc = pos2(hr.left() + 14.0, hr.center().y);
-    let lresp = ui.interact(Rect::from_center_size(lc, vec2(20.0, 22.0)), ui.id().with(("led", i)), Sense::click()).on_hover_text(if on { "Turn off" } else { "Turn on" });
+    let lresp = ui.interact(Rect::from_center_size(lc, vec2(20.0, 22.0)), ui.scope_id().with(("led", i)), Sense::click()).on_hover_text(if on { "Turn off" } else { "Turn on" });
     pa.circle_filled(lc, 6.0, if on { ON_COL } else { th.raised });
     pa.circle_filled(lc, 3.5, if on { rgb(0xf4, 0xff, 0xf0) } else { th.faint });
     if lresp.clicked() {
@@ -529,7 +537,7 @@ fn column(ui: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaParams
         let aw = if is_loss { 0.0 } else { 20.0 };
         let arrows: Vec<(Rect, &str)> = if is_loss { Vec::new() } else { vec![(Rect::from_min_size(fr.min, vec2(aw, 22.0)), "‹"), (Rect::from_min_size(pos2(fr.right() - aw, fr.top()), vec2(aw, 22.0)), "›")] };
         for (k, (ar, s)) in arrows.iter().enumerate() {
-            let resp = ui.interact(*ar, ui.id().with(("fv", i, k)), Sense::click());
+            let resp = ui.interact(*ar, ui.scope_id().with(("fv", i, k)), Sense::click());
             txt(&pa, ar.center() + vec2(0.0, -1.0), Align2::CENTER_CENTER, *s, labb(17.0), if resp.hovered() { col } else { th.dim }, 0.0);
             if resp.clicked() {
                 let nvv = if k == 0 { (var - 1 + nv) % nv } else { (var + 1) % nv };
@@ -537,7 +545,7 @@ fn column(ui: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaParams
             }
         }
         let mid = Rect::from_min_max(pos2(fr.left() + aw, fr.top()), pos2(fr.right() - aw, fr.bottom()));
-        let resp = ui.interact(mid, ui.id().with(("fvm", i)), Sense::click()).on_hover_text("Pick the flavor");
+        let resp = ui.interact(mid, ui.scope_id().with(("fvm", i)), Sense::click()).on_hover_text("Pick the flavor");
         let name = d.vars[var as usize];
         txt(&pa, mid.center(), Align2::CENTER_CENTER, name, labb(if name.len() > 9 || is_loss && name.len() > 6 { 10.5 } else { 12.0 }), if resp.hovered() { col } else { th.text }, 0.6);
         if resp.clicked() {
@@ -580,7 +588,7 @@ fn column(ui: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaParams
         txt(&pa, pos2(r.left() + 10.0, y - 10.0), Align2::LEFT_CENTER, a, labb(9.5), if dimk { th.faint } else { th.dim }, 0.6);
         txt(&pa, pos2(r.right() - 10.0, y - 10.0), Align2::RIGHT_CENTER, b, labb(9.5), if dimk { th.faint } else { th.dim }, 0.6);
         let tr = Rect::from_min_max(pos2(r.left() + 12.0, y - 3.0), pos2(r.right() - 12.0, y + 3.0));
-        let resp = ui.interact(tr.expand2(vec2(6.0, 8.0)), ui.id().with(("bar", m)), Sense::click_and_drag()).on_hover_text(knob_text(m, k, ks[k].value(), var));
+        let resp = ui.interact(tr.expand2(vec2(6.0, 8.0)), ui.scope_id().with(("bar", m)), Sense::click_and_drag()).on_hover_text(knob_text(m, k, ks[k].value(), var));
         hslider(ui, setter, &resp, ks[k], tr);
         let v = ks[k].value();
         pa.rect_filled(tr, rr(3.0), th.faint);
@@ -606,7 +614,7 @@ fn column(ui: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaParams
     let fy = at(352.0);
     txt(&pa, pos2(r.left() + 10.0, fy), Align2::LEFT_CENTER, "FLUX", labb(10.0), if dimk { th.faint } else { th.dim }, 1.0);
     let tr = Rect::from_min_max(pos2(r.left() + 42.0, fy - 3.0), pos2(r.right() - 10.0, fy + 3.0));
-    let fresp = ui.interact(tr.expand2(vec2(4.0, 7.0)), ui.id().with(("flux", m)), Sense::click_and_drag()).on_hover_text("FLUX: the module's main knob drifts around by itself");
+    let fresp = ui.interact(tr.expand2(vec2(4.0, 7.0)), ui.scope_id().with(("flux", m)), Sense::click_and_drag()).on_hover_text("FLUX: the module's main knob drifts around by itself");
     hslider(ui, setter, &fresp, &mp.flux, tr);
     let fv = mp.flux.value();
     pa.rect_filled(tr, rr(3.0), th.faint);
@@ -642,7 +650,7 @@ fn column(ui: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaParams
     let echo_on = p.e_on.value() || p.slots().iter().any(|c| c.value() == M_ECHO as i32 + 1);
     txt(&pa, pos2(r.left() + 4.0, sy), Align2::LEFT_CENTER, "ECHO", labb(9.0), if es > 0.0 && echo_on { ecol } else { th.dim }, 0.8);
     let tr = Rect::from_min_max(pos2(r.left() + 36.0, sy - 2.5), pos2(r.right() - 6.0, sy + 2.5));
-    let resp = ui.interact(tr.expand2(vec2(4.0, 7.0)), ui.id().with(("es", m)), Sense::click_and_drag()).on_hover_text("ECHO send: every repeat goes back through this module");
+    let resp = ui.interact(tr.expand2(vec2(4.0, 7.0)), ui.scope_id().with(("es", m)), Sense::click_and_drag()).on_hover_text("ECHO send: every repeat goes back through this module");
     hslider(ui, setter, &resp, &mp.esend, tr);
     pa.rect_filled(tr, rr(2.5), th.faint);
     if es > 0.002 {
@@ -656,8 +664,8 @@ fn column(ui: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaParams
 }
 
 /// Small toggle chip.
-fn chip(ui: &mut egui::Ui, pa: &Painter, th: &Th, r: Rect, label: &str, on: bool, col: Color32, id: impl std::hash::Hash) -> Response {
-    let resp = ui.interact(r, ui.id().with(("chip", id)), Sense::click());
+fn chip(ui: &mut egui::Ui, pa: &Painter, th: &Th, r: Rect, label: &str, on: bool, col: Color32, id: impl std::hash::Hash + std::fmt::Debug) -> Response {
+    let resp = ui.interact(r, ui.scope_id().with(("chip", id)), Sense::click());
     let hot = resp.hovered();
     pa.rect_filled(r, rr(4.0), if on { col } else if hot { th.faint } else { th.raised });
     pa.rect_stroke(r, rr(4.0), Stroke::new(1.0, if on { col } else { th.edge }), StrokeKind::Inside);
@@ -684,7 +692,7 @@ fn echo_strip(ui: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaPa
     pa.rect_filled(hr, CornerRadius { nw: 8, ne: 0, sw: 0, se: 8 }, if on { col } else { mix_col(col, th.panel, 0.72) });
     txt(&pa, hr.center() + vec2(8.0, 0.0), Align2::CENTER_CENTER, "ECHO", labb(15.0), if on { ON_COL } else { th.dim }, 2.0);
     let lc = pos2(hr.left() + 14.0, hr.center().y);
-    let lresp = ui.interact(hr, ui.id().with("e-led"), Sense::click()).on_hover_text(if on { "Turn ECHO off" } else { "Turn ECHO on" });
+    let lresp = ui.interact(hr, ui.scope_id().with("e-led"), Sense::click()).on_hover_text(if on { "Turn ECHO off" } else { "Turn ECHO on" });
     pa.circle_filled(lc, 6.0, if on { ON_COL } else { th.raised });
     pa.circle_filled(lc, 3.5, if on { rgb(0xf4, 0xff, 0xf0) } else { th.faint });
     if lresp.clicked() {
@@ -707,7 +715,7 @@ fn echo_strip(ui: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaPa
     let var = mp.var.value().clamp(0, vars.len() as i32 - 1);
     pa.rect_filled(fr, rr(5.0), th.raised);
     pa.rect_stroke(fr, rr(5.0), Stroke::new(1.0, th.edge), StrokeKind::Inside);
-    let resp = ui.interact(fr, ui.id().with("e-var"), Sense::click()).on_hover_text("Click: next flavor");
+    let resp = ui.interact(fr, ui.scope_id().with("e-var"), Sense::click()).on_hover_text("Click: next flavor");
     txt(&pa, fr.center(), Align2::CENTER_CENTER, vars[var as usize], labb(11.0), if resp.hovered() { col } else { th.text }, 0.8);
     if resp.clicked() {
         set_int(setter, &mp.var, (var + 1) % vars.len() as i32);
@@ -758,7 +766,7 @@ fn echo_strip(ui: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaPa
     let fy = 104.0;
     txt(&pa, at(136.0, fy), Align2::LEFT_CENTER, "FLUX", labb(10.0), if dim { th.faint } else { th.dim }, 1.0);
     let tr = Rect::from_min_max(at(170.0, fy - 3.0), at(310.0, fy + 3.0));
-    let fresp = ui.interact(tr.expand2(vec2(4.0, 7.0)), ui.id().with("e-flux"), Sense::click_and_drag()).on_hover_text("FLUX: the repeats drift around by themselves");
+    let fresp = ui.interact(tr.expand2(vec2(4.0, 7.0)), ui.scope_id().with("e-flux"), Sense::click_and_drag()).on_hover_text("FLUX: the repeats drift around by themselves");
     hslider(ui, setter, &fresp, &mp.flux, tr);
     let fv = mp.flux.value();
     pa.rect_filled(tr, rr(3.0), th.faint);
@@ -867,7 +875,7 @@ fn hslider(ui: &egui::Ui, setter: &ParamSetter, resp: &Response, prm: &FloatPara
 
 /// FOCUS: the frequency range the module works on (the rest passes clean).
 #[allow(clippy::too_many_arguments)]
-fn focus_strip(ui: &mut egui::Ui, setter: &ParamSetter, th: &Th, pa: &Painter, plo: &FloatParam, phi: &FloatParam, br: Rect, col: Color32, m: impl std::hash::Hash + Copy, dim: bool, cut: bool) {
+fn focus_strip(ui: &mut egui::Ui, setter: &ParamSetter, th: &Th, pa: &Painter, plo: &FloatParam, phi: &FloatParam, br: Rect, col: Color32, m: impl std::hash::Hash + Copy + std::fmt::Debug, dim: bool, cut: bool) {
     let mapx = |f: f32| br.left() + fu(f) * br.width();
     let (lo, hi) = (plo.value(), phi.value());
     pa.rect_filled(br, rr(4.0), if th.light { th.faint } else { rgb(0x11, 0x12, 0x16) });
@@ -891,7 +899,7 @@ fn focus_strip(ui: &mut egui::Ui, setter: &ParamSetter, th: &Th, pa: &Painter, p
     pa.rect_stroke(sel, rr(3.0), Stroke::new(1.0, al(col, if dim { 0.3 } else { 0.9 })), StrokeKind::Inside);
     for (w, x, prm) in [(0, xl, plo), (1, xh, phi)] {
         let hr = Rect::from_center_size(pos2(x, br.center().y), vec2(12.0, br.height() + 8.0));
-        let resp = ui.interact(hr, ui.id().with(("foc", m, w)), Sense::click_and_drag()).on_hover_text("Drag: where this module works · double-click: full range");
+        let resp = ui.interact(hr, ui.scope_id().with(("foc", m, w)), Sense::click_and_drag()).on_hover_text("Drag: where this module works · double-click: full range");
         if resp.double_clicked() {
             to_default(setter, plo);
             to_default(setter, phi);
@@ -922,7 +930,7 @@ fn focus_strip(ui: &mut egui::Ui, setter: &ParamSetter, th: &Th, pa: &Painter, p
 fn empty_column(ui: &mut egui::Ui, st: &mut St, th: &Th, i: usize, first: bool, o: egui::Vec2) {
     let r = slot_rect(o, i);
     let pa = ui.painter().clone();
-    let resp = ui.interact(r, ui.id().with(("empty", i)), Sense::click());
+    let resp = ui.interact(r, ui.scope_id().with(("empty", i)), Sense::click());
     let hot = resp.hovered();
     pa.rect_filled(r, rr(8.0), if hot { al(th.panel, 0.8) } else { al(th.panel, 0.35) });
     pa.rect_stroke(r, rr(8.0), Stroke::new(1.0, if hot { th.dim } else { th.edge }), StrokeKind::Inside);
@@ -979,7 +987,7 @@ fn flavor_menu(ui: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaP
     let w = COLW + 30.0;
     let x = (r.center().x - w / 2.0).clamp(o.x + 8.0, o.x + WIDTH as f32 - w - 8.0);
     let mr = Rect::from_min_size(pos2(x, r.top() + 62.0), vec2(w, d.vars.len() as f32 * 24.0 + 8.0));
-    let bg = ui.interact(Rect::from_min_size(pos2(o.x, o.y + 44.0), vec2(WIDTH as f32, HEIGHT as f32 - 44.0)), ui.id().with("flav-bg"), Sense::click());
+    let bg = ui.interact(Rect::from_min_size(pos2(o.x, o.y + 44.0), vec2(WIDTH as f32, HEIGHT as f32 - 44.0)), ui.scope_id().with("flav-bg"), Sense::click());
     let pa = ui.painter().clone();
     pa.rect_filled(mr.translate(vec2(0.0, 4.0)), rr(8.0), Color32::from_black_alpha(140));
     pa.rect_filled(mr, rr(8.0), th.raised);
@@ -988,7 +996,7 @@ fn flavor_menu(ui: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaP
     let mut picked = false;
     for (k, v) in d.vars.iter().enumerate() {
         let ir = Rect::from_min_size(mr.min + vec2(4.0, 4.0 + k as f32 * 24.0), vec2(w - 8.0, 22.0));
-        let resp = ui.interact(ir, ui.id().with(("flv", k)), Sense::click());
+        let resp = ui.interact(ir, ui.scope_id().with(("flv", k)), Sense::click());
         let sel = cur == k as i32;
         if sel || resp.hovered() {
             pa.rect_filled(ir, rr(5.0), if sel { MCOL[m] } else { th.faint });
@@ -1007,7 +1015,7 @@ fn flavor_menu(ui: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaP
 #[allow(clippy::too_many_arguments)]
 fn picker(ui: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaParams, th: &Th, list: &[usize], slot: usize, o: egui::Vec2, t: f32) {
     let whole = Rect::from_min_size(pos2(o.x, o.y + 44.0), vec2(WIDTH as f32, HEIGHT as f32 - 44.0));
-    let bg = ui.interact(whole, ui.id().with("pick-bg"), Sense::click());
+    let bg = ui.interact(whole, ui.scope_id().with("pick-bg"), Sense::click());
     let pa = ui.painter().clone();
     pa.rect_filled(whole, 0.0, al(th.bg, 0.86));
     let sheet = Rect::from_center_size(whole.center(), vec2(856.0, 500.0));
@@ -1024,7 +1032,7 @@ fn picker(ui: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaParams
     if let Some(m) = here {
         for (k, s) in ["REMOVE", "RESET"].iter().enumerate() {
             let b = Rect::from_min_size(sheet.right_top() + vec2(-220.0 + k as f32 * 100.0, 18.0), vec2(92.0, 24.0));
-            let resp = ui.interact(b, ui.id().with(("pk-act", k)), Sense::click());
+            let resp = ui.interact(b, ui.scope_id().with(("pk-act", k)), Sense::click());
             pa.rect_filled(b, rr(6.0), if resp.hovered() { th.faint } else { th.raised });
             pa.rect_stroke(b, rr(6.0), Stroke::new(1.0, th.edge), StrokeKind::Inside);
             txt(&pa, b.center(), Align2::CENTER_CENTER, *s, labb(12.0), th.text, 1.5);
@@ -1052,7 +1060,7 @@ fn picker(ui: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaParams
         let list = &list_c;
         let cr = Rect::from_min_size(sheet.min + vec2(24.0 + gx as f32 * (cw + 10.0), 58.0 + gy as f32 * 142.0), vec2(cw, 130.0));
         let used_elsewhere = list.contains(&m) && here != Some(m);
-        let resp = ui.interact(cr, ui.id().with(("pk", m)), Sense::click()).on_hover_text(if used_elsewhere { "Already in the rack: picking it swaps the two" } else { "" });
+        let resp = ui.interact(cr, ui.scope_id().with(("pk", m)), Sense::click()).on_hover_text(if used_elsewhere { "Already in the rack: picking it swaps the two" } else { "" });
         let col = MCOL[m];
         let hot = resp.hovered();
         pa.rect_filled(cr, rr(8.0), if hot { th.raised } else { th.bg2 });
@@ -1242,19 +1250,17 @@ const _UNUSED: (f32, f32) = (PI, TAU);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nih_plug::context::gui::GuiContext;
-    use nih_plug::wrapper::state::PluginState;
-    use nih_plug_egui::egui::{epaint, Event, ImageData, Modifiers, PointerButton, RawInput, TextureId, TextureWrapMode, Vec2};
+    use nice_plug::context::gui::GuiContextInner;
+    use nice_plug::plugin::PluginState;
+    use egui::{epaint, Event, ImageData, Modifiers, PointerButton, RawInput, TextureId, TextureWrapMode, Vec2};
     use std::collections::HashMap;
 
     struct Mock;
-    impl GuiContext for Mock {
+    impl GuiContextInner for Mock {
         fn plugin_api(&self) -> PluginApi {
             PluginApi::Vst3
         }
-        fn request_resize(&self) -> bool {
-            true
-        }
+        fn request_restart(&self) {}
         unsafe fn raw_begin_set_parameter(&self, _p: ParamPtr) {}
         unsafe fn raw_set_parameter_normalized(&self, _p: ParamPtr, _n: f32) {}
         unsafe fn raw_end_set_parameter(&self, _p: ParamPtr) {}
@@ -1272,10 +1278,9 @@ mod tests {
         repeat: bool,
     }
     fn apply_delta(texs: &mut HashMap<TextureId, Tex>, out: &egui::FullOutput) {
-        for (id, d) in &out.textures_delta.set {
+        for (id, d) in out.textures_delta.set.iter().flat_map(|(id, ds)| ds.iter().map(move |d| (id, d))) {
             let (w, h, px): (usize, usize, Vec<[f32; 4]>) = match &d.image {
                 ImageData::Color(c) => (c.size[0], c.size[1], c.pixels.iter().map(|p| [p.r() as f32 / 255.0, p.g() as f32 / 255.0, p.b() as f32 / 255.0, p.a() as f32 / 255.0]).collect()),
-                ImageData::Font(f) => (f.size[0], f.size[1], f.srgba_pixels(None).map(|p| [p.r() as f32 / 255.0, p.g() as f32 / 255.0, p.b() as f32 / 255.0, p.a() as f32 / 255.0]).collect()),
             };
             let repeat = d.options.wrap_mode == TextureWrapMode::Repeat;
             if let Some(pos) = d.pos {
@@ -1370,8 +1375,8 @@ mod tests {
                         st.pick = if mode == 1 { Some(2) } else { None };
                         st.flav = if mode == 2 { Some(M_REVERB) } else { None };
                         let q = Pos2::new(x as f32, y as f32);
-                        let _ = ctx.run(raw(i, vec![Event::PointerMoved(q), Event::PointerButton { pos: q, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE }]), |c| frame(c, &setter, &mut st, &p, &sh));
-                        let _ = ctx.run(raw(i + 1, vec![Event::PointerButton { pos: q, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }]), |c| frame(c, &setter, &mut st, &p, &sh));
+                        let _ = ctx.run_ui(raw(i, vec![Event::PointerMoved(q), Event::PointerButton { pos: q, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE }]), |c| frame(c, &setter, &mut st, &p, &sh));
+                        let _ = ctx.run_ui(raw(i + 1, vec![Event::PointerButton { pos: q, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }]), |c| frame(c, &setter, &mut st, &p, &sh));
                         i += 2;
                     }
                 }
@@ -1416,7 +1421,7 @@ mod tests {
             st.flav = *flav;
             let mut last = None;
             for f in 0..3 {
-                last = Some(ctx.run(raw(n * 10 + f, vec![]), |c| frame(c, &setter, &mut st, pp, &sh)));
+                last = Some(ctx.run_ui(raw(n * 10 + f, vec![]), |c| frame(c, &setter, &mut st, pp, &sh)));
                 if f < 2 {
                     apply_delta(&mut texs, last.as_ref().unwrap());
                 }

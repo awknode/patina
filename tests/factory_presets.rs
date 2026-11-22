@@ -1,7 +1,7 @@
 //! Factory presets. `cargo test --test factory_presets` checks every preset names
 //! real params with legal values and runs it (bounded, finite); with PRESET_OUT=dir
 //! it also writes the .awkp files. Anything a preset doesn't mention loads at its default.
-use nih_plug::prelude::*;
+use nice_plug::prelude::*;
 use patina::*;
 use serde_json::{json, Map, Value};
 
@@ -193,7 +193,7 @@ fn factory_presets_are_valid() {
     let dir = std::env::var("PRESET_OUT").ok();
     for p in PRESETS {
         let v = build(&params, &overrides(p));
-        let _: nih_plug::wrapper::state::PluginState = serde_json::from_value(v.clone()).unwrap();
+        let _: nice_plug::plugin::PluginState = serde_json::from_value(v.clone()).unwrap();
         // and it plays: bounded, finite
         let st = state(p);
         let mut e = Engine::new(48000.0, 1);
