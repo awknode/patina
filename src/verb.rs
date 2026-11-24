@@ -88,6 +88,13 @@ impl Reverb {
         let sr = self.sr;
         let first = self.var != var;
         self.var = var;
+        if first {
+            // GLUE keeps the low end out of the reverb, so it binds without thickening
+            let f = if var == V_GLUE { 280.0 } else { 60.0 };
+            for h in self.hp.iter_mut() {
+                h.highpass(f, 0.7, sr);
+            }
+        }
         let rt = rt60(var, k[0]).max(0.05);
         self.pre_n = pre_ms(k[2]) * 0.001 * sr;
         if first {
@@ -111,6 +118,7 @@ impl Reverb {
             V_VAULT => (2, 1.3 + 1.6 * k[1], 0.55, false, 1.3, 0.45),
             // a cheap old plate: dull and seasick
             V_LOFI => (0, 0.6 + 1.0 * k[1], 0.7, false, 1.6, 0.28),
+            V_GLUE => (1, 0.4 + 0.6 * k[1], 0.66, true, 0.15, 0.55),
             _ => (2, 1.0 + 1.7 * k[1], 0.5, false, 1.1, 0.7),
         };
         self.diff_g = dg;

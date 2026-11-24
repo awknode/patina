@@ -52,6 +52,9 @@ pub struct Noise {
     dust: f32,
     tone_a: f32,
     follow: f32,
+    /// GATE: open while music plays, held a moment, then fades out
+    gate_g: f32,
+    hold: f32,
     width: f32,
     snap: f32,
     pops: f32,
@@ -104,7 +107,9 @@ impl Noise {
             level: 0.0,
             dust: 0.0,
             tone_a: 1.0,
-            follow: 1.0,
+            follow: 0.5,
+            gate_g: 0.0,
+            hold: 0.0,
             width: 1.0,
             snap: 0.0,
             pops: 0.0,
@@ -163,8 +168,25 @@ impl Noise {
     }
     pub fn tick(&mut self, l: f32, r: f32) -> (f32, f32) {
         let e = self.env.tick(l.abs().max(r.abs()));
-        let g = self.level * ((1.0 - self.follow) + self.follow * e / (e + 0.03));
         let sr = self.sr;
+        // FOLLOW: 0 = ALWAYS on. Up to 50% = GATE: a steady level while anything plays (no pumping),
+        // fading out after 250 ms of silence (50% = all the way out). Above 50% = RIDE: it also
+        // rises and falls with the music's level (the old behaviour at 100%).
+        // gate on the input itself (-80 dB), not the slow level follower: the hiss must not hang on
+        if l.abs().max(r.abs()) > 1e-4 {
+            self.hold = 0.25 * sr;
+        } else {
+            self.hold -= 1.0;
+        }
+        let tgt = if self.hold > 0.0 { 1.0 } else { 0.0 };
+        let k = if tgt > self.gate_g { 1.0 / (0.03 * sr) } else { 1.0 / (0.12 * sr) };
+        self.gate_g += k * (tgt - self.gate_g);
+        if tgt == 0.0 && self.gate_g < 1e-5 {
+            self.gate_g = 0.0;
+        }
+        let fk = self.follow;
+        let (depth, ride) = if fk <= 0.02 { (0.0, 0.0) } else if fk <= 0.5 { (fk / 0.5, 0.0) } else { (1.0, (fk - 0.5) / 0.5) };
+        let g = self.level * (1.0 - depth * (1.0 - self.gate_g)) * ((1.0 - ride) + ride * e / (e + 0.03));
         let (surface, cr_rate, sn_rate, pop_rate, rpm, scratch) = NOISE_V[self.var];
         // record rotation: crackle gets denser over a worn arc, and the scratch ticks once a turn
         let mut wear_arc = 1.0;
@@ -370,10 +392,15 @@ pub struct Magnetic {
     vf: f32,
     drop_k: f32,
     dlp: [Lp1; 2],
+    /// CHOW machines (ChowTape hysteresis + loss): None = the classic engine
+    chow: Option<usize>,
+    hyst: [crate::chow::Hyst; 2],
+    chow_mk: f32,
+    chow_clip: f32,
 }
 impl Magnetic {
     pub fn new(sr: f32) -> Self {
-        Self { sr, rng: Rng(0x0bad_cafe), line: [Line::new((0.03 * sr) as usize), Line::new((0.03 * sr) as usize)], wow_ph: 0.0, flut_ph: 0.0, drift: 0.0, drift_t: 0.0, drift_sm: 0.0, wow_d: 0.0, flut_d: 0.0, sat_g: 1.0, mk: 1.0, hp: [Biq::default(); 2], bump: [Biq::default(); 2], lp: [Biq::default(); 2], lp2: [Lp1::default(); 2], lp2_a: 1.0, drop_rate: 0.0, drop_amt: 0.0, drop_left: 0.0, drop_target: 1.0, drop_g: 1.0, env: Env::new(0.005, 0.3, sr), hiss: 0.0, vf: 0.0, drop_k: 0.002, dlp: [Lp1::default(); 2] }
+        Self { sr, rng: Rng(0x0bad_cafe), line: [Line::new((0.03 * sr) as usize), Line::new((0.03 * sr) as usize)], wow_ph: 0.0, flut_ph: 0.0, drift: 0.0, drift_t: 0.0, drift_sm: 0.0, wow_d: 0.0, flut_d: 0.0, sat_g: 1.0, mk: 1.0, hp: [Biq::default(); 2], bump: [Biq::default(); 2], lp: [Biq::default(); 2], lp2: [Lp1::default(); 2], lp2_a: 1.0, drop_rate: 0.0, drop_amt: 0.0, drop_left: 0.0, drop_target: 1.0, drop_g: 1.0, env: Env::new(0.005, 0.3, sr), hiss: 0.0, vf: 0.0, drop_k: 0.002, dlp: [Lp1::default(); 2], chow: None, hyst: [crate::chow::Hyst::new(sr); 2], chow_mk: 1.0, chow_clip: 10.0 }
     }
     pub fn reset(&mut self) {
         self.line.iter_mut().for_each(|l| l.clear());
@@ -382,10 +409,16 @@ impl Magnetic {
         }
         self.drop_g = 1.0;
         self.drop_left = 0.0;
+        self.hyst.iter_mut().for_each(|h| h.reset());
     }
     pub fn control(&mut self, k: &[f32; MAX_K], var: usize) {
         let sr = self.sr;
-        let v = var.min(2);
+        let v = var % 3;
+        let chow = if var >= 3 { Some(v) } else { None };
+        if chow.is_some() && self.chow != chow {
+            self.hyst.iter_mut().for_each(|h| h.reset());
+        }
+        self.chow = chow;
         let base_lp = [12000.0, 18000.0, 7000.0][v];
         let hp = [40.0, 25.0, 80.0][v];
         let (bdb, bf) = [(1.5, 90.0), (2.5, 55.0), (1.0, 120.0)][v];
@@ -410,6 +443,29 @@ impl Magnetic {
         self.vf = k[5];
         self.drop_k = 0.0005 * 100f32.powf(k[6]);
         self.hiss = db([-62.0, -70.0, -56.0][v]) * wear;
+        if let Some(m) = chow {
+            // CHOW: SATURATE = tape drive into the hysteresis, WEAR = head-to-tape spacing
+            let (speed, gap, thick, sat, width, clip, max_sp) = crate::chow::MACHINES[m];
+            let drive = 0.1 + 0.9 * k[2];
+            for h in self.hyst.iter_mut() {
+                h.cook(drive, width, sat);
+            }
+            // ChowTape's makeup, then level-matched to the classic engine across SATURATE (fair A/B)
+            let trim = [1.0, 1.33, 1.0][m];
+            self.chow_mk = crate::chow::Hyst::makeup(width, sat) * trim / (0.4 + 1.5 * drive);
+            self.chow_clip = clip;
+            let spacing = 0.1 + wear * wear * max_sp;
+            let corner = crate::chow::loss_corner(speed, spacing, thick, gap, (0.45 * sr).min(22000.0));
+            let (bf, bdb) = crate::chow::head_bump(speed, gap);
+            for ch in 0..2 {
+                self.hp[ch].highpass(18.0, 0.7, sr);
+                self.bump[ch].peak(bf, 2.0, bdb, sr);
+                self.lp[ch].lowpass(corner.min(0.45 * sr), 0.6, sr);
+            }
+            self.lp2_a = 1.0;
+            self.sat_g = 1.0;
+            self.mk = 1.0;
+        }
     }
     pub fn tick(&mut self, l: f32, r: f32) -> (f32, f32) {
         let sr = self.sr;
@@ -442,7 +498,11 @@ impl Magnetic {
         for ch in 0..2 {
             self.line[ch].push(ins[ch]);
             let mut y = self.line[ch].cubic(d);
-            y = soft(y, self.sat_g) * self.mk;
+            y = if self.chow.is_some() {
+                self.hyst[ch].tick(y.clamp(-self.chow_clip, self.chow_clip)) * self.chow_mk
+            } else {
+                soft(y, self.sat_g) * self.mk
+            };
             y = self.hp[ch].tick(y);
             y = self.bump[ch].tick(y);
             y = self.lp[ch].tick(y);

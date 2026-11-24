@@ -117,12 +117,13 @@ struct St {
 fn new_state(name: &'static str) -> St {
     let mut skin = Skin::new(Look::Riso, ACCENT, "PATINA", env!("CARGO_PKG_VERSION"), "");
     skin.name_font = Some(head(24.0));
-    St { presets: PresetBar::new(name), skin, an_in: Analyzer::default(), an_out: Analyzer::default(), pick: None, flav: None, drag: None }
+    St { presets: PresetBar::new(name).with_dice(&["mix", "gmix", "safe", "os", "out", "in", "match"]), skin, an_in: Analyzer::default(), an_out: Analyzer::default(), pick: None, flav: None, drag: None }
 }
 
 pub(crate) fn create(params: Arc<PatinaParams>, shared: Arc<Shared>) -> Option<crate::nice_app::AwkEditor> {
     let state = params.editor_state.clone();
     let st = new_state("Patina");
+    crate::presets::apply_scale(&state, &params.ui_scale);
     create_egui_editor(state, nice_plug_egui::RepaintNotifier::new(), nice_plug_egui::EguiNiceSettings::default(), crate::nice_app::AwkApp::new(fonts, {
         let mut __st = st;
         Box::new(move |ctx: &mut egui::Ui, setter: &ParamSetter| {
@@ -330,7 +331,7 @@ fn frame(root: &mut egui::Ui, setter: &ParamSetter, st: &mut St, p: &PatinaParam
             picker(ui, setter, st, p, &th, &list, slot, o, t);
         }
         // header last so its preset list draws over everything
-        let _ = st.presets.strip(ui, setter, p, whole, &st.skin, &p.mix, &p.bypass);
+        let _ = st.presets.strip(ui, setter, p, whole, &st.skin, &p.mix, &p.bypass, &p.ui_scale);
     });
 }
 

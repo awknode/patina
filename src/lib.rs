@@ -21,6 +21,9 @@ pub mod comp;
 pub mod dsp;
 
 mod editor;
+mod chow;
+#[cfg(test)]
+mod space_audit;
 mod nice_app;
 pub mod fx;
 pub mod loss;
@@ -679,7 +682,8 @@ impl Engine {
                     }
                     let (dg, wg) = match MODS[m].law {
                         Law::Blend => (1.0 - g, g),
-                        Law::Send => ((2.0 * (1.0 - g)).min(1.0), (2.0 * g).min(1.0)),
+                        // (send level squared: the first half of MIX was all of the wet range and too touchy)
+                        Law::Send => ((2.0 * (1.0 - g)).min(1.0), (2.0 * g).min(1.0).powi(2)),
                     };
                     // CUT: what's outside the range goes away as the module comes in
                     let keep = if ms.cut { 1.0 - g } else { 1.0 };
@@ -726,7 +730,7 @@ impl Engine {
                         let (w0, w1) = tw.tick(m, d0, d1, &c);
                         let (dg, wg) = match MODS[m].law {
                             Law::Blend => (1.0 - gm, gm),
-                            Law::Send => ((2.0 * (1.0 - gm)).min(1.0), (2.0 * gm).min(1.0)),
+                            Law::Send => ((2.0 * (1.0 - gm)).min(1.0), (2.0 * gm).min(1.0).powi(2)),
                         };
                         let keep = if ms.cut { 1.0 - gm } else { 1.0 };
                         let t0 = d0 * dg + w0 * wg + cc0 * keep;

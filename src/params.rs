@@ -42,6 +42,8 @@ pub const V_SPRING: usize = 6;
 pub const V_AMBIENCE: usize = 7;
 pub const V_VAULT: usize = 8;
 pub const V_LOFI: usize = 9;
+/// short, light room for glue: lows and extreme highs kept out of the reverb (the SPACE default)
+pub const V_GLUE: usize = 10;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cat {
@@ -77,13 +79,13 @@ pub struct ModDef {
 }
 
 pub const MODS: [ModDef; N_MODS] = [
-    ModDef { id: "noise", name: "NOISE", cat: Cat::Texture, law: Law::Blend, vars: &["VINYL A", "TAPE", "HUM", "ROOM", "VINYL B", "SHELLAC", "DUST"], knobs: &[("LEVEL", 0.5), ("DUST", 0.3), ("TONE", 0.6), ("FOLLOW", 1.0), ("WIDTH", 0.5), ("SNAP", 0.35), ("POPS", 0.25)], mix: 1.0, blurb: "records (snap, crackle, pop), tape hiss, hum or room tone", flux: (0, 0.3), on: true },
+    ModDef { id: "noise", name: "NOISE", cat: Cat::Texture, law: Law::Blend, vars: &["VINYL A", "TAPE", "HUM", "ROOM", "VINYL B", "SHELLAC", "DUST"], knobs: &[("LEVEL", 0.5), ("DUST", 0.3), ("TONE", 0.6), ("FOLLOW", 0.5), ("WIDTH", 0.5), ("SNAP", 0.35), ("POPS", 0.25)], mix: 1.0, blurb: "records (snap, crackle, pop), tape hiss, hum or room tone", flux: (0, 0.3), on: true },
     ModDef { id: "crush", name: "DIGITAL", cat: Cat::Texture, law: Law::Blend, vars: &["CLEAN", "DITHER"], knobs: &[("BITS", 0.5), ("RATE", 0.3), ("JITTER", 0.0), ("SMOOTH", 0.3)], mix: 0.7, blurb: "bit depth and sample rate, with jitter", flux: (1, 0.35), on: true },
-    ModDef { id: "mag", name: "MAGNETIC", cat: Cat::Texture, law: Law::Blend, vars: &["CASSETTE", "REEL", "VHS"], knobs: &[("WEAR", 0.4), ("DROPOUTS", 0.2), ("SATURATE", 0.4), ("FLUTTER", 0.35), ("WEAR<>FLUT", 0.5), ("VOL<>FILT", 0.0), ("SHAPE", 0.3)], mix: 1.0, blurb: "worn tape: dull highs, dropouts, squash, flutter", flux: (1, 0.5), on: true },
+    ModDef { id: "mag", name: "MAGNETIC", cat: Cat::Texture, law: Law::Blend, vars: &["CASSETTE", "REEL", "VHS", "CHOW CASSETTE", "CHOW REEL", "CHOW VHS"], knobs: &[("WEAR", 0.4), ("DROPOUTS", 0.2), ("SATURATE", 0.4), ("FLUTTER", 0.35), ("WEAR<>FLUT", 0.5), ("VOL<>FILT", 0.0), ("SHAPE", 0.3)], mix: 1.0, blurb: "worn tape: dull highs, dropouts, squash, flutter", flux: (1, 0.5), on: true },
     ModDef { id: "chop", name: "CHOP", cat: Cat::Texture, law: Law::Blend, vars: &["GATE", "STUTTER"], knobs: &[("RATE", 0.2), ("DEPTH", 0.7), ("SMOOTH", 0.3), ("SWING", 0.0), ("CHANCE", 1.0)], mix: 1.0, blurb: "tempo gate or stutter", flux: (1, 0.3), on: true },
     ModDef { id: "wob", name: "WOBBLE", cat: Cat::Motion, law: Law::Blend, vars: &["FREE", "SYNC"], knobs: &[("WOW", 0.4), ("RATE", 0.4), ("FLUTTER", 0.2), ("DRIFT", 0.2), ("STEREO", 0.3)], mix: 1.0, blurb: "wow, flutter and drift, free or on the beat", flux: (0, 0.4), on: true },
     ModDef { id: "echo", name: "ECHO", cat: Cat::Motion, law: Law::Send, vars: &["TAPE", "DIGITAL", "PING-PONG"], knobs: &[("TIME", 0.625), ("FEEDBACK", 0.35), ("TONE", 0.5), ("WOBBLE", 0.2), ("WIDTH", 0.5), ("THRU RACK", 0.0), ("GRAINS", 0.0)], mix: 0.3, blurb: "synced delay; THRU RACK sends the repeats back through every module, GRAINS scatters them", flux: (3, 0.5), on: true },
-    ModDef { id: "verb", name: "SPACE", cat: Cat::Space, law: Law::Send, vars: &["PLATE", "GOLD PLATE", "ROOM", "CHAMBER", "HALL", "CATHEDRAL", "SPRING", "AMBIENCE", "VAULT", "LO-FI"], knobs: &[("DECAY", 0.4), ("SIZE", 0.5), ("PRE-DELAY", 0.1), ("DAMP", 0.4), ("MOD", 0.3), ("DUCK", 0.0)], mix: 0.3, blurb: "plates, rooms, halls, spring and more", flux: (2, 0.35), on: true },
+    ModDef { id: "verb", name: "SPACE", cat: Cat::Space, law: Law::Send, vars: &["PLATE", "GOLD PLATE", "ROOM", "CHAMBER", "HALL", "CATHEDRAL", "SPRING", "AMBIENCE", "VAULT", "LO-FI", "GLUE"], knobs: &[("DECAY", 0.4), ("SIZE", 0.5), ("PRE-DELAY", 0.1), ("DAMP", 0.4), ("MOD", 0.3), ("DUCK", 0.0)], mix: 0.3, blurb: "plates, rooms, halls, spring and more", flux: (2, 0.35), on: true },
     ModDef { id: "chorus", name: "CHORUS", cat: Cat::Motion, law: Law::Blend, vars: &["CHORUS", "ENSEMBLE", "FLANGER", "VIBRATO"], knobs: &[("RATE", 0.3), ("DEPTH", 0.5), ("FEEDBACK", 0.0), ("TONE", 0.6), ("WIDTH", 0.7)], mix: 0.5, blurb: "chorus, 3-voice ensemble, flanger or vibrato", flux: (1, 0.4), on: true },
     ModDef { id: "time", name: "VARISPEED", cat: Cat::Motion, law: Law::Blend, vars: &["1/2 SPEED", "2x SPEED", "TAPE STOP", "1/4 SPEED", "1/8 SPEED"], knobs: &[("CYCLE", 0.25), ("SMOOTH", 0.3), ("LENGTH", 0.5), ("CHANCE", 1.0)], mix: 1.0, blurb: "1/2, 1/4, 1/8 or 2x speed and tape stop, locked to the beat", flux: (3, 0.4), on: true },
     ModDef { id: "rev", name: "REVERSE", cat: Cat::Motion, law: Law::Blend, vars: &["SLICE", "SWELL"], knobs: &[("SIZE", 0.33), ("SMOOTH", 0.3), ("CHANCE", 1.0)], mix: 1.0, blurb: "plays each beat slice backwards", flux: (2, 0.4), on: true },
@@ -174,6 +176,7 @@ pub fn rt60(var: usize, v: f32) -> f32 {
         V_HALL => 0.8 * 25f32.powf(v),
         V_CATHEDRAL => 1.2 * 25f32.powf(v),
         V_AMBIENCE => 0.1 * 12f32.powf(v),
+        V_GLUE => 0.25 * 8f32.powf(v),
         V_VAULT => 2.0 * 15f32.powf(v),
         V_LOFI => 0.4 * 20f32.powf(v),
         _ => 0.5 * 12f32.powf(v),
@@ -207,6 +210,7 @@ pub fn knob_text(m: usize, k: usize, v: f32, var: usize) -> String {
         (M_COMP, k) => crate::comp::knob_text(var, k, v),
         (M_NOISE, 0) => format!("{:.0} dB", noise_level_db(v)),
         (M_NOISE, 2) => format!("{} Hz", hz(800.0 * 20f32.powf(v))),
+        (M_NOISE, 3) => if v <= 0.02 { "ALWAYS".into() } else if v <= 0.5 { format!("GATE {:.0}%", v * 200.0) } else { format!("RIDE {:.0}%", (v - 0.5) * 200.0) },
         (M_CRUSH, 0) => format!("{:.1} bit", crush_bits(v)),
         (M_CRUSH, 1) => format!("{} Hz", hz(crush_rate(v))),
         (M_CHOP, 0) => pick(&CHOP_DIVS, v).0.to_string(),
@@ -346,7 +350,7 @@ impl ModParams {
                 .with_unit("%")
                 .with_value_to_string(formatters::v2s_f32_percentage(0))
                 .with_string_to_value(formatters::s2v_f32_percentage()),
-            var: IntParam::new(format!("{} Flavor", nm), 0, IntRange::Linear { min: 0, max: nvar - 1 })
+            var: IntParam::new(format!("{} Flavor", nm), if m == M_REVERB { V_GLUE as i32 } else { 0 }, IntRange::Linear { min: 0, max: nvar - 1 })
                 .with_value_to_string(Arc::new(move |v| vars.get(v as usize).map(|s| s.to_string()).unwrap_or_default())),
             lo: freq(format!("{} Range Low", nm), 20.0),
             hi: freq(format!("{} Range High", nm), 20000.0),
@@ -403,6 +407,9 @@ pub struct PatinaParams {
     pub mix: FloatParam,
     #[id = "bypass"]
     pub bypass: BoolParam,
+    /// Window size (1.0 = 100%), saved with the project. 0 = not set: open at the default.
+    #[persist = "ui-scale"]
+    pub ui_scale: Arc<std::sync::RwLock<f32>>,
     #[id = "safe"]
     pub safe: BoolParam,
     #[id = "os"]
@@ -519,6 +526,7 @@ impl Default for PatinaParams {
             paper: Arc::new(AtomicBool::new(false)),
             mix: awk_ui::mix_param(),
             bypass: awk_ui::bypass_param(),
+            ui_scale: Arc::new(std::sync::RwLock::new(0.0)),
             safe: awk_ui::safe_param(),
             os,
             amount: FloatParam::new("Magnitude", 1.0, FloatRange::Linear { min: 0.0, max: 1.5 })
